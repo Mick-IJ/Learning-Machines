@@ -54,7 +54,7 @@ class Environment:
         signal.signal(signal.SIGINT, self.terminate_program)
         self.num_sensors = 8
         self.controller = controller
-        self.rob = robobo.SimulationRobobo().connect(address='127.0.0.1', port=19997)
+        self.rob = robobo.SimulationRobobo(number='#2').connect(address='127.0.0.1', port=19997)
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
