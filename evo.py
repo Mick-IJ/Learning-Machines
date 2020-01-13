@@ -20,7 +20,8 @@ class Controller:
         self.n_output = 2
 
     def control(self, inputs, controller):
-        # inputs = (inputs - min(inputs)) / float((max(inputs) - min(inputs)))
+        if np.var(inputs) != 0:
+            inputs = (inputs - min(inputs)) / float((max(inputs) - min(inputs)))
 
         if self.n_hidden[0] > 0:
             # Preparing the weights and biases from the controller of layer 1
@@ -46,7 +47,7 @@ class Controller:
 
             output = sigmoid_activation(inputs.dot(weights) + bias)[0]
 
-        return (output * 2) - 1
+        return (output*2) - 1
 
 
 class Environment:
@@ -54,31 +55,38 @@ class Environment:
         signal.signal(signal.SIGINT, self.terminate_program)
         self.num_sensors = 8
         self.controller = controller
-        self.rob = robobo.SimulationRobobo(number='#2').connect(address='127.0.0.1', port=19997)
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
         sys.exit(1)
 
     def play(self, p_cont):
-        fitness = 0
-        n_its = 20
-        for i in range(n_its):
-            inputs = np.log(np.asarray(self.rob.read_irs())) / 10
-            inputs = np.where(inputs == -np.inf, 0, inputs)
 
-            action = self.controller.control(inputs, p_cont)
+        for robobo_num in ['', '#0', '#2']:
+            self.rob = robobo.SimulationRobobo(number=robobo_num).connect(address='127.0.0.1', port=19997)
+            self.rob.play_simulation()
 
-            left, right = action[0]*50, action[1]*50
+            fitness = 0
+            n_its = 20
+            for i in range(n_its):
+                inputs = np.log(np.asarray(self.rob.read_irs())) / 10
+                inputs = np.where(inputs == -np.inf, -0.001, inputs)
 
-            self.rob.move(left, right, 200)
-            s_trans = abs(left) + abs(right)
-            s_rot = abs(left - right) / 100
-            v_sens = abs(min(inputs))
+                action = self.controller.control(inputs, p_cont)
 
-            fitness += ((s_trans*(1-s_rot)*(1-v_sens)) / n_its)
+                left, right = action[0]*50, action[1]*50
 
-        return fitness
+                self.rob.move(left, right, 200)
+                s_trans = abs(left) + abs(right)
+                s_rot = abs(left - right) / 100
+                v_sens = abs(min(inputs))
+
+                fitness += ((s_trans*(1-s_rot)*(1-v_sens)) / n_its)
+
+            self.rob.disconnect()
+
+        self.rob.stop_world()
+        return fitness/3
 
 
 ENV = Environment(Controller())
@@ -280,7 +288,7 @@ class Population:
         plt.plot(self.max_fit_history, label="best")
         plt.plot(self.mean_fit_history, label="avg")
         plt.plot(self.worst_fit_history, label='worst')
-        plt.ylim((0, 500))
+        plt.ylim((0, 50))
         plt.legend()
         plt.title("First run score")
         plt.show()
