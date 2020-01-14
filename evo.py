@@ -20,9 +20,6 @@ class Controller:
         self.n_output = 2
 
     def control(self, inputs, controller):
-        if np.var(inputs) != 0:
-            inputs = (inputs - min(inputs)) / float((max(inputs) - min(inputs)))
-
         if self.n_hidden[0] > 0:
             # Preparing the weights and biases from the controller of layer 1
 
@@ -52,36 +49,36 @@ class Controller:
 
 class Environment:
     def __init__(self, controller):
-        signal.signal(signal.SIGINT, self.terminate_program)
         self.num_sensors = 8
         self.controller = controller
+        signal.signal(signal.SIGINT, self.terminate_program)
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
         sys.exit(1)
 
     def play(self, p_cont):
-
         for robobo_num in ['', '#0', '#2']:
+
             self.rob = robobo.SimulationRobobo(number=robobo_num).connect(address='127.0.0.1', port=19997)
             self.rob.play_simulation()
 
             fitness = 0
             n_its = 20
             for i in range(n_its):
-                inputs = np.log(np.asarray(self.rob.read_irs())) / 10
-                inputs = np.where(inputs == -np.inf, -0.001, inputs)
+                inputs = np.log(np.asarray(self.rob.read_irs())) / 10  # read and scale
+                inputs = np.where(inputs == -np.inf, 0, inputs)  # remove the infinite
+                inputs = (inputs - -0.65) / (0 - -0.65)  # scale between 0 and 1
 
                 action = self.controller.control(inputs, p_cont)
-
                 left, right = action[0]*50, action[1]*50
 
                 self.rob.move(left, right, 200)
                 s_trans = abs(left) + abs(right)
                 s_rot = abs(left - right) / 100
-                v_sens = abs(min(inputs))
+                v_sens = min(inputs)
 
-                fitness += ((s_trans*(1-s_rot)*(1-v_sens)) / n_its)
+                fitness += ((s_trans*(1-s_rot)*(v_sens)) / n_its)
 
             self.rob.disconnect()
 
@@ -303,7 +300,7 @@ def main(size=5, generations=5, children_per_gen=5):
 
         for j in range(children_per_gen):
             population.sex(type_='recombine', selection_type='rank')
-
+    
         population.trim(type_='rank')
         population.display_population()
 
@@ -313,4 +310,4 @@ def main(size=5, generations=5, children_per_gen=5):
     population.plot_generations()
 
 
-main(size=10, generations=10)
+main(size=5, generations=5)
