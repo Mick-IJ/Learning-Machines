@@ -15,38 +15,48 @@ def terminate_program(self, signal_number, frame):
     print("Ctrl-C received, terminating program")
     sys.exit(1)
 
+
 signal.signal(signal.SIGINT, terminate_program)
 rob = robobo.SimulationRobobo(number='#0').connect(address='127.0.0.1', port=19997)
 rob.play_simulation()
 
 
-def get_state(rob):
+def get_state():
+    global rob
     sensors = np.log(np.array(rob.read_irs())) / 10
     sensors = np.where(sensors == -np.inf, 0, sensors)  # remove the infinite
+    sensors = (sensors - -0.65) / 0.65
 
     n_sensors = []
     for sensor in sensors:
-        if sensor < -0.4:
+        if sensor < 0.6:
             r = 1
         else:
             r = 0
         n_sensors.append(r)
 
-    b, r, c, l = n_sensors[1], n_sensors[3], n_sensors[5], n_sensors[7]
+    b = max(n_sensors[:3])
+    r = max(n_sensors[3:6])
+    l = max(n_sensors[5:8])
 
-    return int(str(b)+str(r)+str(c)+str(l), 2)
+    return int(str(b)+str(r)+str(l), 2)
 
 
-def get_reward(rob, left, right):
+def get_reward(move):
+    global rob
     sensors = np.log(np.array(rob.read_irs())) / 10
     sensors = np.where(sensors == -np.inf, 0, sensors)  # remove the infinite
     sensors = (sensors - -0.65) / (0 - -0.65)  # scale between 0 and 1
 
-    s_trans = abs(left) + abs(right)
-    s_rot = abs(left - right) / 100
-    v_sens = min(sensors)
-
-    return s_trans * (1 - s_rot) * v_sens
+    if min(sensors) > 0.4:
+        if move == 0 or move == 1:
+            return -5
+        elif move == 2:
+            return -1
+        else:  # move == 3:
+            return -2
+    else:
+        return -20
 
 
 def get_move(reward_table, state, epsilon):
@@ -60,7 +70,7 @@ def get_move(reward_table, state, epsilon):
     return move
 
 
-def main(iterations = 100, alpha = 0.5, gamma = 0.9, method = 'SARSA', epsilon=0.2):
+def main(iterations=100, alpha=0.6, gamma=0.9, method='SARSA', epsilon=0.2):
     '''
     iterations: number of times the game is played
     alpha: learning rate
@@ -69,28 +79,27 @@ def main(iterations = 100, alpha = 0.5, gamma = 0.9, method = 'SARSA', epsilon=0
     epsilon: epsilon in the epsilon greedy policy
     rows: number of rows (<10)
     '''
-
+    global rob
     reward_table = np.zeros((16, 4))  # L, R, F, B
 
     for i in range(iterations):
-        state = get_state(rob)
+        state = get_state()
         old_state = state
 
         # move from the old state
         move = get_move(reward_table, old_state, epsilon)
-
         if move == 0:
-            left, right = -25, 25
+            left, right = -20, 20
         elif move == 1:
-            left, right = 25, -25
+            left, right = 20, -20
         elif move == 2:
             left, right = 25, 25
         else:  # move == 3
             left, right = -25, -25
 
         rob.move(left, right, 200)
-        reward = get_reward(rob, left, right)
-        current_state = get_state(rob)
+        reward = get_reward(move)
+        current_state = get_state()
 
         # move from the current state
         next_move = get_move(reward_table, current_state, epsilon)
@@ -104,8 +113,10 @@ def main(iterations = 100, alpha = 0.5, gamma = 0.9, method = 'SARSA', epsilon=0
                                                   alpha * (reward + gamma * reward_table[current_state].max()
                                                            - reward_table[old_state][move]), 4)
 
+    rob.disconnect()
+
     return reward_table
 
 
-table = main()
+table = main(iterations=500)
 print(table)
