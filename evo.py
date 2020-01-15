@@ -9,6 +9,8 @@ import prey
 import matplotlib.pyplot as plt
 from random import sample
 
+WHEELS = False
+
 
 def sigmoid_activation(x):
     return 1./(1.+np.exp(-x))
@@ -17,11 +19,13 @@ def sigmoid_activation(x):
 class Controller:
     def __init__(self):
         self.n_hidden = [10]
-        self.n_output = 2
+
+        if WHEELS:
+            self.n_output = 2
+        else:
+            self.n_output = 4
 
     def control(self, inputs, controller):
-        if np.var(inputs) != 0:
-            inputs = (inputs - min(inputs)) / float((max(inputs) - min(inputs)))
 
         if self.n_hidden[0] > 0:
             # Preparing the weights and biases from the controller of layer 1
@@ -47,46 +51,60 @@ class Controller:
 
             output = sigmoid_activation(inputs.dot(weights) + bias)[0]
 
-        return (output*2) - 1
+        if WHEELS:
+            return (output*2) - 1
+        else:
+            return np.argmax(output)
 
 
 class Environment:
     def __init__(self, controller):
-        signal.signal(signal.SIGINT, self.terminate_program)
-        self.num_sensors = 8
+        self.num_sensors = 4
         self.controller = controller
+        signal.signal(signal.SIGINT, self.terminate_program)
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
         sys.exit(1)
 
     def play(self, p_cont):
-
-        for robobo_num in ['', '#0', '#2']:
+        for robobo_num in ['#0']:
             self.rob = robobo.SimulationRobobo(number=robobo_num).connect(address='127.0.0.1', port=19997)
             self.rob.play_simulation()
 
             fitness = 0
-            n_its = 20
+            n_its = 50
             for i in range(n_its):
-                inputs = np.log(np.asarray(self.rob.read_irs())) / 10
-                inputs = np.where(inputs == -np.inf, -0.001, inputs)
+                inputs = np.log(np.asarray(self.rob.read_irs())) / 10  # read and scale
+                inputs = np.where(inputs == -np.inf, 0, inputs)  # remove the infinite
+                inputs = (inputs - -0.65) / (0 - -0.65)  # scale between 0 and 1
+                b, r, c, l = inputs[1], inputs[3], inputs[5], inputs[7]  # select B, RR, C, LL
+                inputs = np.array([b, r, c, l])
 
                 action = self.controller.control(inputs, p_cont)
 
-                left, right = action[0]*50, action[1]*50
+                if WHEELS:
+                    left, right = action[0]*50, action[1]*50
+                else:
+                    if action == 0:
+                        left, right = 25, -25
+                    elif action == 1:
+                        left, right = -25, 25
+                    elif action == 2:
+                        left, right = 25, 25
+                    else:  # action == 3
+                        left, right = -25, -25
 
                 self.rob.move(left, right, 200)
                 s_trans = abs(left) + abs(right)
                 s_rot = abs(left - right) / 100
-                v_sens = abs(min(inputs))
+                v_sens = min(inputs)
 
-                fitness += ((s_trans*(1-s_rot)*(1-v_sens)) / n_its)
+                fitness += ((s_trans*(1-s_rot)*v_sens) / n_its)
 
             self.rob.disconnect()
 
-        self.rob.stop_world()
-        return fitness/3
+        return fitness
 
 
 ENV = Environment(Controller())
@@ -96,7 +114,11 @@ class Individual:
     dom_u = 1
     dom_l = -1
     n_hidden = 10
-    n_vars = (ENV.num_sensors + 1) * n_hidden + (n_hidden + 1) * 2  # multilayer with 50 neurons
+    if WHEELS:
+        n_output = 2
+    else:
+        n_output = 4
+    n_vars = (ENV.num_sensors + 1) * n_hidden + (n_hidden + 1) * n_output  # multilayer with 50 neurons
 
     def __init__(self):
         self.age = 0
@@ -132,14 +154,8 @@ class Individual:
 
     def mutate(self, mutation_rate):
         for i in range(0, len(self.weights)):
-            # if np.random.random() <= mutation_rate ** 2:
-            #     self.weights[i] = np.random.normal(0, 1)
             if np.random.random() <= mutation_rate:
                 self.weights[i] = self.weights[i] * np.random.normal(0, 1.27)
-            # if np.random.random() <= mutation_rate:
-            #     self.weights[i] = self.weights[i] + np.random.normal(0, .1)
-        # if np.random.random() <= mutation_rate ** 3:
-        #     np.random.shuffle(self.weights)
         self.check_limits()
 
 
@@ -157,6 +173,7 @@ class Population:
         self.mean_fit_history = list()
         self.max_fit_history = list()
         self.worst_fit_history = list()
+        self.best_individual = None
 
     def append(self, individual):
         self.individuals.append(individual)
@@ -170,6 +187,17 @@ class Population:
         self.individuals.remove(individual)
         self.update_stats()
 
+    def get_best(self):
+        best_score = 0
+        best_ind = None
+
+        for individual in self.individuals:
+            if individual.fitness > best_score:
+                best_score = individual.fitness
+                best_ind = individual
+
+        return best_ind
+
     def update_stats(self):
         population_fit = [i.fitness for i in self.individuals]
         self.mean_fit = np.mean(population_fit)
@@ -177,6 +205,10 @@ class Population:
         self.worst_fit = np.min(population_fit)
         self.mean_age = np.mean([i.age for i in self.individuals])
         self.mean_children = np.mean([i.children for i in self.individuals])
+
+        best = self.get_best()
+        if best.fitness > self.best_individual.fitness:
+            self.best_individual = best
 
     def display_population(self):
         i = 1
@@ -201,6 +233,7 @@ class Population:
             individual.birthday()
             self.individuals.append(individual)
 
+        self.best_individual = self.get_best()
         self.update_stats()
         self.display_population()
 
@@ -217,25 +250,33 @@ class Population:
             probabilities = [rank / sum(ranks) for rank in ranks]
             return np.random.choice(self.individuals, size=n, replace=False, p=probabilities)
 
-    def trim(self, type_='fit'):
+    def trim(self, type_='fit', elitist=False):
+        size = self.size
+        if elitist:
+            best = self.get_best()
+            self.kill(best)
+            size -= 1
+
         if type_ == 'random':
-            self.individuals = sample(self.individuals, self.size)
+            self.individuals = sample(self.individuals, size)
         elif type_ == 'fit':
             pop_fitness = [(individual.fitness + 7) for individual in self.individuals]
             probabilities = [(fit / sum(pop_fitness)) for fit in pop_fitness]
-            self.individuals = list(np.random.choice(self.individuals, size=self.size, replace=False, p=probabilities))
+            self.individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
         elif type_ == 'rank':
             pop_fitness = [(individual.fitness + 7) for individual in self.individuals]
             ranks = [(sorted(pop_fitness).index(ind) + 0.1) for ind in pop_fitness]
             probabilities = [rank / sum(ranks) for rank in ranks]
-            self.individuals = list(np.random.choice(self.individuals, size=self.size, replace=False, p=probabilities))
+            self.individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
+
+        if elitist:
+            self.individuals.append(best)
 
         self.update_stats()
 
     def sex(self, type_='mean', selection_type='fit'):
 
         parent1, parent2 = self.select_parents(2, type_=selection_type)
-
         cross_prop = np.random.random()
 
         if type_ == 'mean':
@@ -304,13 +345,17 @@ def main(size=5, generations=5, children_per_gen=5):
         for j in range(children_per_gen):
             population.sex(type_='recombine', selection_type='rank')
 
-        population.trim(type_='rank')
+        population.trim(type_='rank', elitist=True)
         population.display_population()
-
         population.mutation_rate_change()
         population.next_generation()
 
     population.plot_generations()
 
+    return population.best_individual
 
-main(size=10, generations=10)
+
+best_ind = main(size=5, generations=2, children_per_gen=2)
+
+fit = ENV.play(p_cont=best_ind.weights)
+print('Best solution:', fit)
