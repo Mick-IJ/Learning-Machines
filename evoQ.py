@@ -30,25 +30,28 @@ class Environment:
                                    .flatten().tolist(), 1)[0]
 
             if action == 0:
-                left, right = 0, 25
-                reward = 2
-            elif action == 1:
-                left, right = 25, 0
-                reward = 2
-            elif action == 2:
-                left, right = 25, 25
+                left, right, duration = 25, 25, 200
                 reward = 10
+            elif action == 1:
+                left, right, duration = 10, 25, 300
+                reward = 5
+            elif action == 2:
+                left, right, duration = 25, 10, 300
+                reward = 5
+            elif action == 3:
+                left, right, duration = -10, -25, 300
+                reward = 1
             else:  # action == 3:
-                left, right = -25, -25
-                reward = -1
+                left, right, duration = -25, -10, 300
+                reward = 1
 
-            self.rob.move(left, right, 200)
+            self.rob.move(left, right, duration)
             v_sens = min(sensors)
 
             if min(sensors) < 0.1:
                 fitness -= 1
             else:
-                fitness += ((reward*v_sens) / n_its)
+                fitness += (reward/ n_its)
 
         return fitness
 
@@ -65,12 +68,12 @@ class Environment:
                 r = 0
             n_sensors.append(r)
 
-        b = max(n_sensors[:3])
-        r = max(n_sensors[3:5])
-        c = n_sensors[5]
-        l = max(n_sensors[6:8])
+        bl = max(n_sensors[:2])
+        br = max(n_sensors[1:3])
+        fl = max(n_sensors[4:7])
+        fr = max(n_sensors[6:8])
 
-        return int(str(b)+str(r)+str(l)+str(c), 2), sensors
+        return int(str(bl)+str(br)+str(fl)+str(fr), 2), sensors
 
 
 ENV = Environment()
@@ -88,7 +91,7 @@ class Individual:
         self.children = 0
         self.parents = None
         self.n_states = 32
-        self.n_actions = 4
+        self.n_actions = 5
 
     def set_q_table(self, q_table=None):
         if q_table is None:
@@ -119,7 +122,7 @@ class Population:
         self.individuals = list()
         self.size = size
         self.generation = 1
-        self.mutation_rate = 0.1
+        self.mutation_rate = 0.2
         self.mean_age = None
         self.mean_children = None
         self.mean_fit = None
@@ -160,10 +163,10 @@ class Population:
         self.mean_age = np.mean([i.age for i in self.individuals])
         self.mean_children = np.mean([i.children for i in self.individuals])
         self.best_individual = self.get_best()
+        pickle.dump(self, open('pop.txt', 'wb'))
 
     def display_population(self):
-        i = 1
-        for individual in self.individuals:
+        for i, individual in enumerate(self.individuals):
             if individual.parents is not None:
                 parent1, parent2 = individual.parents
                 mean_parents = (parent1.fitness + parent2.fitness) / 2
@@ -171,7 +174,6 @@ class Population:
                 mean_parents = 0
             print(i, ': fitness =', round(individual.fitness, 4), 'age =', individual.age,
                   'children =', individual.children, 'parent_fit =', round(mean_parents, 2))
-            i += 1
 
         print('Mean fitness:', round(self.mean_fit, 4), 'Mean age:', round(self.mean_age, 2),
               'Mean children =', round(self.mean_children, 2), '\n')
@@ -203,34 +205,34 @@ class Population:
 
     def trim(self, type_='fit', elitist=False):
         size = self.size
+        new_individuals = list()
         if elitist:
             best = self.get_best()
-            self.kill(best)
+            best.evaluate()
             size -= 1
+            new_individuals.append(best)
 
         if type_ == 'random':
-            self.individuals = random.sample(self.individuals, size)
+            new_individuals = random.sample(self.individuals, size)
         elif type_ == 'fit':
             pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
             probabilities = [(fit / sum(pop_fitness)) for fit in pop_fitness]
-            self.individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
+            new_individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
         elif type_ == 'rank':
             pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
             ranks = [(sorted(pop_fitness).index(ind) + 0.1) for ind in pop_fitness]
             probabilities = [rank / sum(ranks) for rank in ranks]
-            self.individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
+            new_individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
 
-        if elitist:
-            self.individuals.append(best)
+        self.individuals = new_individuals
 
         self.update_stats()
 
     def sex(self, selection_type='fit'):
-
         parent1, parent2 = self.select_parents(2, type_=selection_type)
-
         child1 = np.zeros((parent1.n_states, parent1.n_actions))
         child2 = np.zeros((parent1.n_states, parent1.n_actions))
+
         for i, row in enumerate(child1):
             if np.random.random() <= .5:
                 child1[i] = parent1.q_table[i]
