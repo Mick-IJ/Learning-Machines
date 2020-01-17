@@ -29,3 +29,9 @@ class Model:
         l = max(sensors[6:8])
 
         return int(str(l)+str(r), 2)
+
+    OPTIMAL_QTABLE = (np.array([
+                np.array([0, 0, 1]),
+                np.array([1, 0, 0]),
+                np.array([0, 1, 0]),
+                np.array([0, 1, 0])]))  # Found from the evolution
