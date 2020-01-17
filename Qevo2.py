@@ -30,10 +30,12 @@ class Environment:
 
             if action == 0:
                 left, right, duration = -25, 25, 300
-                reward = 2
+                self.rob.move(-10, -10, 50)
+                reward = 0
             elif action == 1:
                 left, right, duration = 25, -25, 300
-                reward = 2
+                self.rob.move(-10, -10, 50)
+                reward = 0
             else:  # action == 2:
                 left, right, duration = 25, 25, 300
                 reward = 5
@@ -54,17 +56,17 @@ class Environment:
 
         n_sensors = []
         for sensor in sensors:
-            if sensor > 0.5:
+            if sensor < 0.6:
                 r = 1
             else:
                 r = 0
             n_sensors.append(r)
 
-        l = max(n_sensors[3:5])
-        c = n_sensors[5]
-        r = max(n_sensors[6:8])
+        r = max(n_sensors[3:6])
+        # c = n_sensors[5]
+        l = max(n_sensors[6:8])
 
-        return int(str(l)+str(c)+str(r), 2), sensors
+        return int(str(l)+str(r), 2), sensors
 
 
 ENV = Environment()
@@ -81,7 +83,7 @@ class Individual:
         self.time = None
         self.children = 0
         self.parents = None
-        self.n_states = 8
+        self.n_states = 4
         self.n_actions = 3
 
     def set_q_table(self, q_table=None):
@@ -119,9 +121,11 @@ class Population:
         self.mean_fit = None
         self.max_fit = None
         self.worst_fit = None
+        self.var = None
         self.mean_fit_history = list()
         self.max_fit_history = list()
         self.worst_fit_history = list()
+        self.var_history = list()
         self.best_individual = None
 
     def append(self, individual):
@@ -146,6 +150,7 @@ class Population:
 
     def update_stats(self):
         population_fit = [i.fitness for i in self.individuals]
+        self.var = np.var(population_fit)
         self.mean_fit = np.mean(population_fit)
         self.max_fit = np.max(population_fit)
         self.worst_fit = np.min(population_fit)
@@ -178,17 +183,21 @@ class Population:
         self.best_individual = self.get_best()
         self.update_stats()
         self.display_population()
+        self.mean_fit_history.append(self.mean_fit)
+        self.max_fit_history.append(self.max_fit)
+        self.worst_fit_history.append(self.worst_fit)
+        self.var_history.append(self.var)
 
     def select_parents(self, n, type_='random'):
         if type_ == 'random':
             return random.sample(self.individuals, n)
         elif type_ == 'fit':
-            pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
+            pop_fitness = [(individual.fitness + self.worst_fit) for individual in self.individuals]
             probabilities = [(fit / sum(pop_fitness)) for fit in pop_fitness]
             return np.random.choice(self.individuals, size=n, replace=False, p=probabilities)
         elif type_ == 'rank':
-            pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
-            ranks = [sorted(pop_fitness).index(ind) for ind in pop_fitness]
+            pop_fitness = [(individual.fitness + self.worst_fit) for individual in self.individuals]
+            ranks = [sorted(pop_fitness).index(ind) + 1 for ind in pop_fitness]
             probabilities = [rank / sum(ranks) for rank in ranks]
             return np.random.choice(self.individuals, size=n, replace=False, p=probabilities)
 
@@ -204,12 +213,12 @@ class Population:
         if type_ == 'random':
             new_individuals = random.sample(self.individuals, size)
         elif type_ == 'fit':
-            pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
+            pop_fitness = [(individual.fitness + self.worst_fit) for individual in self.individuals]
             probabilities = [(fit / sum(pop_fitness)) for fit in pop_fitness]
             new_individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
         elif type_ == 'rank':
-            pop_fitness = [(individual.fitness + 50) for individual in self.individuals]
-            ranks = [(sorted(pop_fitness).index(ind) + 0.1) for ind in pop_fitness]
+            pop_fitness = [(individual.fitness + self.worst_fit) for individual in self.individuals]
+            ranks = [(sorted(pop_fitness).index(ind) + 1) for ind in pop_fitness]
             probabilities = [rank / sum(ranks) for rank in ranks]
             new_individuals = list(np.random.choice(self.individuals, size=size, replace=False, p=probabilities))
 
@@ -259,15 +268,26 @@ class Population:
         self.mean_fit_history.append(self.mean_fit)
         self.max_fit_history.append(self.max_fit)
         self.worst_fit_history.append(self.worst_fit)
+        self.var_history.append(self.var)
 
     def plot_generations(self):
-        plt.figure(figsize=(12, 12))
-        plt.plot(self.max_fit_history, label="best")
-        plt.plot(self.mean_fit_history, label="avg")
-        plt.plot(self.worst_fit_history, label='worst')
-        plt.ylim((-20, 20))
+        plt.clf()
+        plt.style.use('seaborn')
+        plt.figure(figsize=(5, 5))
+
+        x = np.linspace(0, self.generation, self.generation)
+        y, error = np.array(self.mean_fit_history), np.array(self.var_history)
+
+        plt.plot(x, y, 'k', label='Mean', color='#CC4F1B')
+        plt.fill_between(x, y - error, y + error,
+                         alpha=0.5, edgecolor='#CC4F1B', facecolor='#FF9848')
+
+        plt.plot(self.max_fit_history, label="Best", color='#88CC1B')
+        plt.plot(self.worst_fit_history, label='Worst', color='#CC1B1B')
+        plt.ylim((-5, 5.1))
+        plt.ylabel('Fitness')
+        plt.xlabel('Generation')
         plt.legend()
-        plt.title("First run score")
         plt.show()
 
 
@@ -290,7 +310,7 @@ def main(size=5, generations=5, children_per_gen=5, population=None):
         for j in range(children_per_gen):
             population.sex(selection_type='rank')
 
-        population.trim(type_='rank', elitist=True)
+        population.trim(type_='rank', elitist=False)
         population.display_population()
         population.mutation_rate_change()
         population.next_generation()
@@ -299,16 +319,12 @@ def main(size=5, generations=5, children_per_gen=5, population=None):
 
 
 #pop = pickle.load(open('pop2.txt', 'rb'))
-#main(size=15, generations=10, children_per_gen=5)
-#print(ENV.play(pop.individuals[3].q_table, n_its=100))
+#pop.plot_generations()
+#main(size=10, generations=10, children_per_gen=5)
 
-ind = Individual()
-ind.set_q_table([[0, 0, 1],
-                 [1, 0, 0],
-                 [1, 0, 0],
-                 [1, 0, 0],
-                 [0, 1, 0],
-                 [0, 1, 0],
-                 [0, 1, 0],
-                 [0, 1, 0]])
-ENV.play(ind.q_table, n_its=100)
+OPTIMAL_QTABLE = (np.array([
+                np.array([0, 0, 1]),
+                np.array([1, 0, 0]),
+                np.array([0, 1, 0]),
+                np.array([0, 1, 0])]))  # Found from the evolution
+ENV.play(OPTIMAL_QTABLE, n_its=400)
