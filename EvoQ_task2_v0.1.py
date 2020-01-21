@@ -14,9 +14,10 @@ import pickle
 class Environment:
     def __init__(self):
         signal.signal(signal.SIGINT, self.terminate_program)
-        self.rob = robobo.SimulationRobobo(number='#0').connect(address='127.0.0.1', port=19997)
+        self.rob = robobo.SimulationRobobo().connect(address='127.0.0.1', port=19997)
         self.rob.play_simulation()
-        self.rob.set_phone_tilt(0.3, 10)
+        self.rob.set_phone_tilt(0.4, 10)
+        self.time_since_obj = 0
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
@@ -30,12 +31,10 @@ class Environment:
                                    .flatten().tolist(), 1)[0]
 
             if action == 0:
-                left, right, duration = -10, 10, 300
-                self.rob.move(-20, -20, 50)
+                left, right, duration = -15, 15, 300
                 reward = 0
             elif action == 1:
-                left, right, duration = 10, -10, 300
-                self.rob.move(-20, -20, 50)
+                left, right, duration = 15, -15, 300
                 reward = 0
             else:  # action == 2:
                 left, right, duration = 25, 25, 300
@@ -66,16 +65,22 @@ class Environment:
         r = max(n_sensors[3:6])
         l = max(n_sensors[6:8])
         o = self.detect_object()
+        t = 1 if self.time_since_obj < 10 else 0
 
-        return int(str(o)+str(l)+str(r), 2), sensors
+        return int(str(t)+str(o)+str(l)+str(r), 2), sensors
 
-    def detect_object(self):  # TODO
+    def detect_object(self):
         input = self.rob.get_image_front()
-        colors = np.array([np.array(list(map(np.argmax, row))) for row in input])
-        colors = colors.reshape(1, input.shape[0]*input.shape[1])[0]
-        counts = np.bincount(colors, minlength=3)
+        input = input[:, 40:88, :]
+        mask = cv2.inRange(input, (0, 100, 0), (90, 255, 90))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-        return 1 if (counts[2] / counts.sum()) > 0.4 else 0
+        if contours:
+            self.time_since_obj = 0
+            return 1
+        else:
+            self.time_since_obj += 1
+            return 0
 
 
 ENV = Environment()
@@ -92,7 +97,7 @@ class Individual:
         self.time = None
         self.children = 0
         self.parents = None
-        self.n_states = 32  # 2bits sensor + 1bit cam detected
+        self.n_states = 8  # 2bits sensor + 1bit cam detected
         self.n_actions = 3
 
     def set_q_table(self, q_table=None):
@@ -331,14 +336,22 @@ def main(size=5, generations=5, children_per_gen=5, population=None):
 #main(size=10, generations=10, children_per_gen=5)
 ind = Individual()
 q_table =  (np.array([
-                np.array([0, 0, 1]),
+                np.array([0, 0, 1]),    # nothing seen in the last few its
                 np.array([1, 0, 0]),
                 np.array([0, 1, 0]),
+                np.array([1, 0, 0]),
+                  np.array([0, 0, 1]),  # target detected
+                  np.array([0, 0, 1]),
+                  np.array([0, 0, 1]),
+                  np.array([0, 0, 1]),
+                np.array([1, 0, 0]),  # seen something in the last few its
+                np.array([1, 0, 0]),
                 np.array([0, 1, 0]),
+                np.array([1, 0, 0]),
+                  np.array([0, 0, 1]),  # target detected
                   np.array([0, 0, 1]),
                   np.array([0, 0, 1]),
-                  np.array([0, 0, 1]),
-                  np.array([0, 0, 1]),]))
+                  np.array([0, 0, 1])]))
 ind.set_q_table(q_table)
-ENV.play(ind.q_table, n_its=100)
+ENV.play(ind.q_table, n_its=2000)
 
