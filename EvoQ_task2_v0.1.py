@@ -15,18 +15,19 @@ class Environment:
     def __init__(self):
         signal.signal(signal.SIGINT, self.terminate_program)
         self.rob = robobo.SimulationRobobo().connect(address='127.0.0.1', port=19997)
-        self.rob.play_simulation()
-        self.rob.set_phone_tilt(0.4, 10)
         self.time_since_obj = 0
 
     def terminate_program(self, signal_number, frame):
         print("Ctrl-C received, terminating program")
         sys.exit(1)
 
-    def play(self, q_table, n_its=20):
+    def play(self, q_table, n_its=100):
+        self.rob.play_simulation()
+        self.rob.set_phone_tilt(0.6, 10)
+
         fitness = 0
         for i in range(n_its):
-            state, sensors = self.get_state()
+            state, sensors, o = self.get_state()
             action = random.sample(np.argwhere(q_table[state] == np.amax(q_table[state]))
                                    .flatten().tolist(), 1)[0]
 
@@ -38,14 +39,19 @@ class Environment:
                 reward = 0
             else:  # action == 2:
                 left, right, duration = 25, 25, 300
-                reward = 5
+                reward = 1
 
             self.rob.move(left, right, duration)
 
-            if min(sensors) < 0.2:
-                fitness -= 0.5
+            if (min(sensors) < 0.2) and not o:
+                fitness -= 100
+                break
             else:
-                fitness += (reward/n_its)
+                fitness += reward
+
+        fitness += (self.rob.collected_food()*50)
+        self.rob.stop_world()
+        self.rob.wait_for_stop()
 
         return fitness
 
@@ -67,7 +73,7 @@ class Environment:
         o = self.detect_object()
         t = 1 if self.time_since_obj < 10 else 0
 
-        return int(str(t)+str(o)+str(l)+str(r), 2), sensors
+        return int(str(t)+str(o)+str(l)+str(r), 2), sensors, o
 
     def detect_object(self):
         input = self.rob.get_image_front()
@@ -87,7 +93,7 @@ ENV = Environment()
 
 
 class Individual:
-    dom_u = 10
+    dom_u = 1
     dom_l = 0
 
     def __init__(self):
@@ -97,7 +103,7 @@ class Individual:
         self.time = None
         self.children = 0
         self.parents = None
-        self.n_states = 8  # 2bits sensor + 1bit cam detected
+        self.n_states = 16  # 2bits sensor + 1bit cam detected
         self.n_actions = 3
 
     def set_q_table(self, q_table=None):
@@ -171,7 +177,7 @@ class Population:
         self.mean_age = np.mean([i.age for i in self.individuals])
         self.mean_children = np.mean([i.children for i in self.individuals])
         self.best_individual = self.get_best()
-        pickle.dump(self, open('pop2.txt', 'wb'))
+        pickle.dump(self, open('pop7.txt', 'wb'))
 
     def display_population(self):
         for i, individual in enumerate(self.individuals):
@@ -260,7 +266,6 @@ class Population:
             child.set_q_table(child_q_table)
             child.mutate(mutation_rate=self.mutation_rate)
             child.evaluate()
-            child.evaluate()
             child.parents = (parent1, parent2)
             self.individuals.append(child)
 
@@ -298,7 +303,7 @@ class Population:
 
         plt.plot(self.max_fit_history, label="Best", color='#88CC1B')
         plt.plot(self.worst_fit_history, label='Worst', color='#CC1B1B')
-        plt.ylim((-5, 5.1))
+        plt.ylim((0, 400))
         plt.ylabel('Fitness')
         plt.xlabel('Generation')
         plt.legend()
@@ -332,26 +337,33 @@ def main(size=5, generations=5, children_per_gen=5, population=None):
     population.plot_generations()
 
 
+main(size=10, generations=10, children_per_gen=5)
 
-#main(size=10, generations=10, children_per_gen=5)
-ind = Individual()
-q_table =  (np.array([
-                np.array([0, 0, 1]),    # nothing seen in the last few its
-                np.array([1, 0, 0]),
-                np.array([0, 1, 0]),
-                np.array([1, 0, 0]),
-                  np.array([0, 0, 1]),  # target detected
-                  np.array([0, 0, 1]),
-                  np.array([0, 0, 1]),
-                  np.array([0, 0, 1]),
-                np.array([1, 0, 0]),  # seen something in the last few its
-                np.array([1, 0, 0]),
-                np.array([0, 1, 0]),
-                np.array([1, 0, 0]),
-                  np.array([0, 0, 1]),  # target detected
-                  np.array([0, 0, 1]),
-                  np.array([0, 0, 1]),
-                  np.array([0, 0, 1])]))
-ind.set_q_table(q_table)
-ENV.play(ind.q_table, n_its=2000)
+i=False
+fitness_scores = []
+if i:
+    ind = Individual()
+    q_table = (np.array([
+                    np.array([0, 0, 1]),    # nothing seen in the last few its
+                    np.array([1, 0, 0]),
+                    np.array([0, 1, 0]),
+                    np.array([1, 0, 0]),
+                      np.array([0, 0, 1]),  # target detected
+                      np.array([0, 0, 1]),
+                      np.array([0, 0, 1]),
+                      np.array([0, 0, 1]),
+                    np.array([1, 0, 0]),  # seen something in the last few its
+                    np.array([1, 0, 0]),
+                    np.array([0, 1, 0]),
+                    np.array([1, 0, 0]),
+                      np.array([0, 0, 1]),  # target detected
+                      np.array([0, 0, 1]),
+                      np.array([0, 0, 1]),
+                      np.array([0, 0, 1])]))
+    ind.set_q_table(q_table)
+    fit = ENV.play(ind.q_table, n_its=500)
+    fitness_scores.append(fit)
 
+    print(fitness_scores)
+    print(np.asarray(fitness_scores).mean())
+    print(np.asarray(fitness_scores).std())
