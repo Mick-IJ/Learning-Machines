@@ -92,9 +92,10 @@ class Environment:
         input = self.rob.get_image_front()
         inputL = input[:, 40:62, :]
         inputR = input[:, 62:88, :]
+        cv2.imwrite('input.jpg', inputL)
         maskL = cv2.inRange(inputL, (0, 100, 0), (90, 255, 90))
         maskR = cv2.inRange(inputR, (0, 100, 0), (90, 255, 90))
-
+        cv2.imwrite('mask.jpg', maskL)
         contoursL, _ = cv2.findContours(maskL, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contoursR, _ = cv2.findContours(maskR, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
