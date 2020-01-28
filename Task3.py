@@ -25,13 +25,16 @@ class Environment:
 
     def select_play(self, hunters, preys, best_hunter=False, best_prey=False, n_its=100):
         if best_hunter and best_prey:
+            print(hunters.get_best().fitness, preys.get_best().fitness)
             self.play(hunters.get_best(), preys.get_best())
         elif best_hunter:
             for prey in preys.individuals:
-                self.play(hunters.get_best(), prey)
+                if prey.fitness == 0:
+                    self.play(hunters.get_best(), prey)
         elif best_prey:
             for hunter in hunters.individuals:
-                self.play(hunter, preys.get_best)
+                if hunter.fitness == 0:
+                    self.play(hunter, preys.get_best)
         else:  # not best_hunter and not best_prey
             for i in range(preys.size):
                 self.play(hunters.individuals[i], preys.individuals[i])
@@ -43,8 +46,8 @@ class Environment:
         self.prey.play_simulation()
         self.hunter.set_phone_tilt(0.6, 10)
 
-        q_hunter = hunter.q_table
-        q_prey = prey.q_table
+        q_hunter, q_prey = hunter.q_table, prey.q_table
+        hunter.fitness, prey.fitness = 100, 0
 
         for i in range(its):
             states = self.get_states()
@@ -55,8 +58,10 @@ class Environment:
                 break
             if crash_hunter:
                 hunter.fitness -= 50
+                break
             if crash_prey:
                 prey.fitness -= 50
+                break
 
             l_hunter, r_hunter, d_hunter = self.get_move(q_hunter, state_hunter)
             l_prey, r_prey, d_prey = self.get_move(q_prey, state_prey)
@@ -67,7 +72,8 @@ class Environment:
             hunter.fitness -= 1
             prey.fitness += 1
 
-        print(hunter.fitness, prey.fitness)
+        self.hunter.stop_world()
+        self.hunter.wait_for_stop()
 
     def get_move(self, q_table, state):
         move = np.argmax(q_table[state])
@@ -91,7 +97,7 @@ class Environment:
 
             r, l = max(n_sensors[3:6]), max(n_sensors[6:8])
             o = self.detect_object(rob, name)
-            t = 1 if min(self.time_since_obj[name]) < 10 else 0
+            t = 1 if min(self.time_since_obj[name]) < 16 else 0
             l_recent = 1 if self.time_since_obj[name][0] <= self.time_since_obj[name][1] else 0
 
             crash = True if not o and min(sensors) < 0.3 else False
@@ -102,7 +108,7 @@ class Environment:
 
     def detect_object(self, rob, name):
         input_ = rob.get_image_front()
-        inputL, inputR = input_[:, :62, :], input_[:, 62:, :]
+        inputL, inputR = input_[:, 40:62, :], input_[:, 62:88, :]
 
         maskL = cv2.inRange(inputL, (0, 0, 100), (140, 140, 255))
         maskR = cv2.inRange(inputR, (0, 0, 100), (140, 140, 255))
@@ -326,11 +332,122 @@ class Population:
 
 
 def main(size=5, generations=5, children_per_gen=5):
-    hunters, preys = Population(size=size), Population(size=size)
+    hunters, preys = Population(size=1), Population(size=size)
     hunters.initialize()
+    preys.initialize()
 
+    # add best hunter from task 2
     ind = Individual()
     ind.set_q_table(np.array([# Left, Right, Forward // # L_recent, T, O, L, RF
+            np.array([1, 0, 0]),  # 00000
+            np.array([1, 0, 0]),  # 00001
+            np.array([0, 1, 0]),  # 00010
+            np.array([1, 0, 0]),  # 00011
+            np.array([0, 0, 1]),  # 00100
+            np.array([0, 0, 1]),  # 00101
+            np.array([0, 0, 1]),  # 00110
+            np.array([0, 0, 1]),  # 00111
+
+            np.array([0, 1, 0]),  # 01000
+            np.array([0, 1, 0]),  # 01001
+            np.array([0, 1, 0]),  # 01010
+            np.array([0, 1, 0]),  # 01011
+            np.array([0, 0, 1]),  # 01100
+            np.array([0, 0, 1]),  # 01101
+            np.array([0, 0, 1]),  # 01110
+            np.array([0, 0, 1]),  # 01111
+
+            np.array([1, 0, 0]),  # 10000
+            np.array([1, 0, 0]),  # 10001
+            np.array([0, 1, 0]),  # 10010
+            np.array([1, 0, 0]),  # 10011
+            np.array([0, 0, 1]),  # 10100
+            np.array([0, 0, 1]),  # 10101
+            np.array([0, 0, 1]),  # 10110
+            np.array([0, 0, 1]),  # 10111
+
+            np.array([1, 0, 0]),  # 11000
+            np.array([1, 0, 0]),  # 11001
+            np.array([1, 0, 0]),  # 11010
+            np.array([1, 0, 0]),  # 11011
+            np.array([0, 0, 1]),  # 11100
+            np.array([0, 0, 1]),  # 11101
+            np.array([0, 0, 1]),  # 11110
+            np.array([0, 0, 1]),  # 11111
+        ]))
+    ind.fitness = 150
+    hunters.append(ind)
+
+    # add a good prey
+    ind2 = Individual()
+    ind2.set_q_table(np.array([# Left, Right, Forward // # L_recent, T, O, L, RF
+            np.array([0, 1, 0]),  # 00000
+            np.array([1, 0, 0]),  # 00001
+            np.array([0, 1, 0]),  # 00010
+            np.array([1, 0, 0]),  # 00011
+            np.array([0, 0, 1]),  # 00100
+            np.array([1, 0, 0]),  # 00101
+            np.array([0, 1, 0]),  # 00110
+            np.array([1, 0, 0]),  # 00111
+
+            np.array([0, 0, 1]),  # 01000
+            np.array([1, 0, 0]),  # 01001
+            np.array([0, 1, 0]),  # 01010
+            np.array([1, 0, 0]),  # 01011
+            np.array([0, 0, 1]),  # 01100
+            np.array([1, 0, 0]),  # 01101
+            np.array([0, 1, 0]),  # 01110
+            np.array([1, 0, 0]),  # 01111
+
+            np.array([1, 0, 0]),  # 10000
+            np.array([1, 0, 0]),  # 10001
+            np.array([0, 1, 0]),  # 10010
+            np.array([1, 0, 0]),  # 10011
+            np.array([0, 0, 1]),  # 10100
+            np.array([1, 0, 0]),  # 10101
+            np.array([0, 1, 0]),  # 10110
+            np.array([1, 0, 0]),  # 10111
+
+            np.array([0, 0, 1]),  # 11000
+            np.array([1, 0, 0]),  # 11001
+            np.array([0, 1, 0]),  # 11010
+            np.array([1, 0, 0]),  # 11011
+            np.array([0, 0, 1]),  # 11100
+            np.array([1, 0, 0]),  # 11101
+            np.array([0, 1, 0]),  # 11110
+            np.array([1, 0, 0]),  # 11111
+        ]))
+    ind2.fitness = 150
+    preys.append(ind2)
+
+
+    ENV = Environment()
+    ENV.select_play(hunters, preys, best_hunter=True, best_prey=True)
+    preys.update_stats()
+    preys.display_population()
+
+    for i in range(generations):
+
+        for j in range(children_per_gen):
+            preys.sex(selection_type='rank')
+
+        ENV.select_play(hunters, preys, best_hunter=True, best_prey=False)
+
+        preys.trim(type_='rank')
+        preys.display_population()
+        preys.mutation_rate_change()
+        preys.next_generation()
+
+    preys.plot_generations()
+
+
+# main(size=10, children_per_gen=5)
+
+
+def play_best():
+    # add best hunter from task 2
+    hunter = Individual()
+    hunter.set_q_table(np.array([# Left, Right, Forward // # L_recent, T, O, L, RF
             np.array([0, 0, 1]),  # 00000
             np.array([1, 0, 0]),  # 00001
             np.array([0, 1, 0]),  # 00010
@@ -367,13 +484,51 @@ def main(size=5, generations=5, children_per_gen=5):
             np.array([0, 0, 1]),  # 11110
             np.array([0, 0, 1]),  # 11111
         ]))
-    ind.fitness = 100
-    hunters.append(ind)
 
-    preys.initialize()
+    # add a good prey
+    prey = Individual()
+    prey.set_q_table(np.array([# Left, Right, Forward // # L_recent, T, O, L, RF
+            np.array([0, 1, 0]),  # 00000
+            np.array([1, 0, 0]),  # 00001
+            np.array([0, 1, 0]),  # 00010
+            np.array([1, 0, 0]),  # 00011
+            np.array([0, 0, 1]),  # 00100
+            np.array([1, 0, 0]),  # 00101
+            np.array([0, 1, 0]),  # 00110
+            np.array([1, 0, 0]),  # 00111
+
+            np.array([0, 0, 1]),  # 01000
+            np.array([1, 0, 0]),  # 01001
+            np.array([0, 1, 0]),  # 01010
+            np.array([1, 0, 0]),  # 01011
+            np.array([0, 0, 1]),  # 01100
+            np.array([1, 0, 0]),  # 01101
+            np.array([0, 1, 0]),  # 01110
+            np.array([1, 0, 0]),  # 01111
+
+            np.array([1, 0, 0]),  # 10000
+            np.array([1, 0, 0]),  # 10001
+            np.array([0, 1, 0]),  # 10010
+            np.array([1, 0, 0]),  # 10011
+            np.array([0, 0, 1]),  # 10100
+            np.array([1, 0, 0]),  # 10101
+            np.array([0, 1, 0]),  # 10110
+            np.array([1, 0, 0]),  # 10111
+
+            np.array([0, 0, 1]),  # 11000
+            np.array([1, 0, 0]),  # 11001
+            np.array([0, 1, 0]),  # 11010
+            np.array([1, 0, 0]),  # 11011
+            np.array([0, 0, 1]),  # 11100
+            np.array([1, 0, 0]),  # 11101
+            np.array([0, 1, 0]),  # 11110
+            np.array([1, 0, 0]),  # 11111
+        ]))
+
 
     ENV = Environment()
+    for i in range(10):
+        ENV.play(hunter, prey, its=2000)
 
-    ENV.select_play(hunters, preys, best_hunter=True, best_prey=False)
 
-main(size=2)
+play_best()
